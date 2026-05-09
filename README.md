@@ -9,6 +9,12 @@ Prerequisites:
 - Internet access to `https://api.openf1.org`
 
 Configuration:
+- Create `.env` from `.env.example` before running Docker Compose:
+
+```bash
+cp .env.example .env
+```
+
 - `.env` contains the local Postgres and Dagster connection settings used by Docker Compose.
 - Postgres is published on host port `5433` by default via `POSTGRES_HOST_PORT`, while the container still uses internal port `5432`.
 - `config/config.yaml` controls API, storage, retry, schedule, and default database values.

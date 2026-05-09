@@ -64,6 +64,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Prepare Docker env file
+        run: |
+          cp .env.example .env
+
       - name: Build Dagster image
         run: |
           docker compose build dagster-code
@@ -94,6 +98,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Prepare Docker env file
+        run: |
+          cp .env.example .env
 
       - name: Build Dagster image
         run: |
