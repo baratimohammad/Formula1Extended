@@ -6,6 +6,14 @@ storage:
   raw_root: "data/raw"
   overwrite: true
 
+database:
+  host: "localhost"
+  port: 5432
+  name: "formula1"
+  user: "formula1"
+  raw_schema: "raw"
+  analytics_schema: "analytics"
+
 pipeline:
   retries:
     max_retries: 3

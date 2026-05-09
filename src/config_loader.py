@@ -1,4 +1,5 @@
 import logging.config
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -50,6 +51,48 @@ def get_storage_raw_root() -> Path:
 
 def get_storage_overwrite() -> bool:
     return bool(load_app_config()["storage"]["overwrite"])
+
+
+def _get_database_value(key: str, env_var: str) -> str:
+    env_value = os.getenv(env_var)
+    if env_value:
+        return env_value
+
+    return str(load_app_config()["database"][key])
+
+
+def get_postgres_host() -> str:
+    return _get_database_value("host", "POSTGRES_HOST")
+
+
+def get_postgres_port() -> int:
+    return int(_get_database_value("port", "POSTGRES_PORT"))
+
+
+def get_postgres_database() -> str:
+    return _get_database_value("name", "POSTGRES_DB")
+
+
+def get_postgres_user() -> str:
+    return _get_database_value("user", "POSTGRES_USER")
+
+
+def get_postgres_password() -> str:
+    return os.getenv("POSTGRES_PASSWORD", "formula1")
+
+
+def get_postgres_raw_schema() -> str:
+    return os.getenv(
+        "POSTGRES_RAW_SCHEMA",
+        str(load_app_config()["database"]["raw_schema"]),
+    )
+
+
+def get_postgres_analytics_schema() -> str:
+    return os.getenv(
+        "POSTGRES_ANALYTICS_SCHEMA",
+        str(load_app_config()["database"]["analytics_schema"]),
+    )
 
 
 def get_pipeline_retry_config() -> dict:

@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: formula1-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster-code:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/dagster/app
+      DAGSTER_HOME: ${DAGSTER_HOME}
+      DAGSTER_POSTGRES_URL: ${DAGSTER_POSTGRES_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/opt/dagster/app
+      - ./dagster_home:/opt/dagster/dagster_home
+    command: >
+      dagster api grpc
+      -h 0.0.0.0
+      -p 4000
+      -m orchestration.definitions
+
+  dagster-webserver:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/dagster/app
+      DAGSTER_HOME: ${DAGSTER_HOME}
+      DAGSTER_POSTGRES_URL: ${DAGSTER_POSTGRES_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dagster-code:
+        condition: service_started
+    volumes:
+      - ./:/opt/dagster/app
+      - ./dagster_home:/opt/dagster/dagster_home
+    command: >
+      dagster-webserver
+      -h 0.0.0.0
+      -p 3000
+      -w /opt/dagster/app/workspace.yaml
+    ports:
+      - "3002:3000"
+
+  dagster-daemon:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/dagster/app
+      DAGSTER_HOME: ${DAGSTER_HOME}
+      DAGSTER_POSTGRES_URL: ${DAGSTER_POSTGRES_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dagster-code:
+        condition: service_started
+    volumes:
+      - ./:/opt/dagster/app
+      - ./dagster_home:/opt/dagster/dagster_home
+    command: dagster-daemon run
+
+volumes:
+  postgres_data:
