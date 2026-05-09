@@ -2,3 +2,9 @@ venv/
 data/
 __pycache__/
 *.py[cod]
+.env
+dagster_home/history/
+dagster_home/schedules/
+dagster_home/storage/
+dbt/formula1_extended/logs/
+dbt/formula1_extended/target/

@@ -1,80 +1,95 @@
-# OpenF1 Ingestion Pipeline
+# OpenF1 Dagster + dbt Stack
 
-This project ingests the latest OpenF1 session, drivers, and laps data and stores raw parquet snapshots under `data/raw/`.
+This project ingests the latest OpenF1 session, drivers, and laps data with Dagster, stores raw snapshots under `data/raw/`, persists raw operational tables in Postgres, and builds dbt models on top of that raw layer.
 
-## How To Run Locally
+## Local Runtime
 
 Prerequisites:
-- Python 3.10
+- Docker with Docker Compose
 - Internet access to `https://api.openf1.org`
 
-Setup:
+Configuration:
+- `.env` contains the local Postgres and Dagster connection settings used by Docker Compose.
+- Postgres is published on host port `5433` by default via `POSTGRES_HOST_PORT`, while the container still uses internal port `5432`.
+- `config/config.yaml` controls API, storage, retry, schedule, and default database values.
+- `config/logging.yaml` controls Python logging output.
+
+Start the full stack:
+
+```bash
+docker compose up --build -d
+```
+
+Check the running services:
+
+```bash
+docker compose ps
+```
+
+Dagster UI:
+
+```text
+http://localhost:3002
+```
+
+Run the end-to-end Dagster job inside Docker:
+
+```bash
+docker compose run --rm dagster-code python -m dagster job execute -f orchestration/definitions.py -j openf1_ingestion_job
+```
+
+Connect to Postgres from the host:
+
+```bash
+psql -h localhost -p 5433 -U formula1 -d formula1
+```
+
+Run dbt manually inside Docker:
+
+```bash
+docker compose run --rm dagster-code dbt build --project-dir dbt/formula1_extended --profiles-dir dbt
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+## Validation
+
+Python checks:
 
 ```bash
 python3.10 -m venv venv
 venv/bin/pip install -r requirements.txt
-```
-
-Project configuration:
-- `config/config.yaml` controls API, storage, retry, and schedule settings.
-- `config/logging.yaml` controls Python logging output.
-
-Run the pipeline job locally:
-
-```bash
-venv/bin/dagster job execute -f orchestration/definitions.py -j openf1_ingestion_job
-```
-
-Run the Dagster UI locally:
-
-```bash
-venv/bin/dagster dev -f orchestration/definitions.py
-```
-
-Run validation checks:
-
-```bash
 venv/bin/ruff check src tests orchestration
 venv/bin/pytest tests/unit
 venv/bin/python tests/create_test_data.py
 venv/bin/python tests/run_sql_tests.py
 ```
 
+Dockerized Postgres + dbt integration:
+
+```bash
+docker compose up -d postgres
+docker compose run --rm dagster-code python tests/load_postgres_test_data.py
+docker compose run --rm dagster-code dbt build --project-dir dbt/formula1_extended --profiles-dir dbt
+docker compose down -v
+```
+
+## Project Layout
+
+- `docker-compose.yml` provisions Postgres plus the Dagster code, webserver, and daemon containers.
+- `dagster_home/dagster.yaml` configures Dagster instance storage in Postgres.
+- `src/storage/postgres_writer.py` persists raw API records into Postgres schemas.
+- `dbt/formula1_extended/` contains the dbt staging and mart models.
+- `.github/workflows/ci.yml` validates Python checks, Docker Compose startup, and dbt builds.
+- `.github/workflows/deploy.yml` runs the Dockerized pipeline on `main` and uploads raw, Dagster, and dbt artifacts.
+
 ## Troubleshooting
 
-- `ModuleNotFoundError`: run commands from the repository root and use the project virtualenv.
-- `Configuration file not found`: confirm `config/config.yaml` and `config/logging.yaml` exist in the repository root.
-- `requests` or connection failures: confirm outbound network access to the OpenF1 API.
-- `No records to write`: the upstream API returned no rows for the resolved session; inspect the API response and session metadata.
-- CI smoke test failures: check the `Pipeline smoke test` job in `CI`, which validates that the Dagster job can execute successfully.
-- Deploy workflow failures: check the `Deploy / Publish Pipeline Snapshot` workflow, which runs the pipeline and uploads raw output plus Dagster run metadata as artifacts.
-- Dagster reruns replace data: the `drivers` and `laps` assets call `write_records_to_parquet(..., overwrite=True)`, so reruns refresh those parquet snapshots.
-
-## Monitor Pipeline Health
-
-- GitHub Actions:
-  - `CI` validates linting, unit tests, test data creation, and SQL checks.
-  - `Pipeline smoke test` in `CI` is the lightweight execution check.
-  - `Deploy / Publish Pipeline Snapshot` runs the pipeline on `main` and uploads the generated raw data and Dagster metadata as workflow artifacts.
-- Dagster:
-  - Monitor asset materializations for `latest_session`, `drivers`, and `laps`.
-  - Inspect asset logs for row counts, output paths, and retry activity.
-- Data outputs:
-  - Confirm expected files exist under the configured `storage.raw_root`, which defaults to `data/raw/`.
-
-## Handle Failed Runs
-
-- Check the failing step first:
-  - local CLI output for `dagster job execute`
-  - GitHub Actions logs for CI or smoke-test failures
-  - Dagster run logs and asset metadata for orchestrated runs
-  - uploaded artifacts from the deploy workflow when you need the produced data snapshot or Dagster metadata
-- Fix the underlying issue, then rerun:
-  - local reruns should use `venv/bin/dagster job execute -f orchestration/definitions.py -j openf1_ingestion_job`
-  - Dagster asset reruns may overwrite `drivers` and `laps`, so treat them as refreshes rather than strict no-op retries
-- If a run failed partway through:
-  - rerunning the Dagster job will rematerialize the affected assets and rewrite `drivers` and `laps`
-
-## Generative AI Disclosure
-
-Parts of this repository’s development and documentation were generated with assistance from ChatGPT and Codex. AI-generated suggestions were reviewed and edited before being kept in the codebase.
+- `Connection refused` or `could not translate host name`: confirm `docker compose up -d postgres` completed and the `.env` values match the running service.
+- `No records to write`: the upstream API returned no rows for the resolved session; inspect the Dagster materialization logs.
+- `dbt build` failures: inspect the `dbt` step output or the uploaded `dbt-artifacts` workflow artifact for compiled SQL and test results.
+- Dagster UI not loading: check `docker compose logs dagster-webserver dagster-daemon dagster-code`.

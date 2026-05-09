@@ -1,8 +1,10 @@
-from src.config_loader import build_raw_output_path
-from src.storage.parquet_writer import write_records_to_parquet
+from src.config_loader import get_postgres_raw_schema
+from src.storage.postgres_writer import write_records_to_postgres
 
 
 def main():
+    raw_schema = get_postgres_raw_schema()
+
     session = {
         "session_key": 999,
         "meeting_key": 111,
@@ -30,26 +32,28 @@ def main():
             "driver_number": 1,
             "lap_number": 1,
             "lap_duration": 92.5,
+            "date_start": "2026-01-01T00:10:00+00:00",
             "ingested_at_utc": "2026-01-01T00:00:00+00:00",
         }
     ]
 
-    write_records_to_parquet(
+    write_records_to_postgres(
         records=[session],
-        output_path=str(build_raw_output_path("sessions", 999, "sessions.parquet")),
-        overwrite=True,
+        table_name="sessions",
+        schema_name=raw_schema,
+        session_key=999,
     )
-
-    write_records_to_parquet(
+    write_records_to_postgres(
         records=drivers,
-        output_path=str(build_raw_output_path("drivers", 999, "drivers.parquet")),
-        overwrite=True,
+        table_name="drivers",
+        schema_name=raw_schema,
+        session_key=999,
     )
-
-    write_records_to_parquet(
+    write_records_to_postgres(
         records=laps,
-        output_path=str(build_raw_output_path("laps", 999, "laps.parquet")),
-        overwrite=True,
+        table_name="laps",
+        schema_name=raw_schema,
+        session_key=999,
     )
 
 

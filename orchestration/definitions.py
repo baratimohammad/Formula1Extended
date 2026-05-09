@@ -1,3 +1,4 @@
+import subprocess
 from datetime import datetime, timezone
 
 from dagster import (
@@ -8,6 +9,7 @@ from dagster import (
     Jitter,
     MetadataValue,
     Output,
+    Failure,
     RetryPolicy,
     ScheduleDefinition,
     asset,
@@ -15,16 +17,20 @@ from dagster import (
 )
 
 from src.config_loader import (
+    PROJECT_ROOT,
     build_raw_output_path,
     configure_logging,
     get_pipeline_retry_config,
     get_pipeline_schedule_config,
+    get_postgres_analytics_schema,
+    get_postgres_raw_schema,
     get_storage_overwrite,
 )
 from src.ingestion.api_client import resolve_latest_session
 from src.ingestion.drivers import ingest_drivers_for_session
 from src.ingestion.laps import ingest_laps_for_session
 from src.storage.parquet_writer import write_records_to_parquet
+from src.storage.postgres_writer import write_records_to_postgres
 
 
 configure_logging()
@@ -39,6 +45,8 @@ RETRY_JITTERS = {
 
 retry_config = get_pipeline_retry_config()
 schedule_config = get_pipeline_schedule_config()
+DBT_PROFILES_DIR = PROJECT_ROOT / "dbt"
+DBT_PROJECT_DIR = PROJECT_ROOT / "dbt" / "formula1_extended"
 
 api_retry_policy = RetryPolicy(
     max_retries=int(retry_config["max_retries"]),
@@ -57,17 +65,29 @@ def latest_session(context: AssetExecutionContext) -> Output[dict]:
 
     session_key = session["session_key"]
     ingested_at_utc = datetime.now(timezone.utc).isoformat()
+    session_record = {
+        **session,
+        "ingested_at_utc": ingested_at_utc,
+    }
+
+    write_records_to_postgres(
+        records=[session_record],
+        table_name="sessions",
+        schema_name=get_postgres_raw_schema(),
+        session_key=session_key,
+    )
 
     context.log.info(f"Resolved latest session_key={session_key}")
 
     return Output(
-        value=session,
+        value=session_record,
         metadata={
             "session_key": session_key,
             "meeting_key": session.get("meeting_key"),
             "session_name": session.get("session_name"),
             "session_type": session.get("session_type"),
             "year": session.get("year"),
+            "target_table": f'{get_postgres_raw_schema()}.sessions',
             "materialized_at_utc": MetadataValue.text(ingested_at_utc),
         },
     )
@@ -92,6 +112,12 @@ def drivers(
         output_path=output_path,
         overwrite=get_storage_overwrite(),
     )
+    write_records_to_postgres(
+        records=records,
+        table_name="drivers",
+        schema_name=get_postgres_raw_schema(),
+        session_key=session_key,
+    )
 
     materialized_at_utc = datetime.now(timezone.utc).isoformat()
 
@@ -109,6 +135,7 @@ def drivers(
             "session_key": session_key,
             "row_count": len(records),
             "output_path": MetadataValue.path(output_path),
+            "target_table": f'{get_postgres_raw_schema()}.drivers',
             "materialized_at_utc": MetadataValue.text(materialized_at_utc),
         },
     )
@@ -134,6 +161,12 @@ def laps(
         output_path=output_path,
         overwrite=get_storage_overwrite(),
     )
+    write_records_to_postgres(
+        records=records,
+        table_name="laps",
+        schema_name=get_postgres_raw_schema(),
+        session_key=session_key,
+    )
 
     materialized_at_utc = datetime.now(timezone.utc).isoformat()
 
@@ -152,14 +185,69 @@ def laps(
             "session_key": session_key,
             "row_count": len(records),
             "output_path": MetadataValue.path(output_path),
+            "target_table": f'{get_postgres_raw_schema()}.laps',
             "materialized_at_utc": MetadataValue.text(materialized_at_utc),
+        },
+    )
+
+
+@asset(
+    description="Run dbt models and tests against the Postgres-backed raw layer.",
+)
+def dbt_build(
+    context: AssetExecutionContext,
+    latest_session: dict,
+    laps: dict,
+) -> Output[dict]:
+    command = [
+        "dbt",
+        "build",
+        "--project-dir",
+        str(DBT_PROJECT_DIR),
+        "--profiles-dir",
+        str(DBT_PROFILES_DIR),
+    ]
+
+    completed_process = subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if completed_process.stdout:
+        context.log.info(completed_process.stdout)
+
+    if completed_process.stderr:
+        context.log.warning(completed_process.stderr)
+
+    if completed_process.returncode != 0:
+        raise Failure(
+            description=(
+                "dbt build failed.\n"
+                f"stdout:\n{completed_process.stdout}\n"
+                f"stderr:\n{completed_process.stderr}"
+            )
+        )
+
+    return Output(
+        value={
+            "session_key": latest_session["session_key"],
+            "row_count": laps["row_count"],
+            "analytics_schema": get_postgres_analytics_schema(),
+        },
+        metadata={
+            "session_key": latest_session["session_key"],
+            "dbt_project_dir": MetadataValue.path(str(DBT_PROJECT_DIR)),
+            "analytics_schema": get_postgres_analytics_schema(),
         },
     )
 
 
 openf1_ingestion_job = define_asset_job(
     name="openf1_ingestion_job",
-    selection=AssetSelection.keys("drivers", "laps").upstream(),
+    selection=AssetSelection.all(),
 )
 
 
@@ -176,6 +264,7 @@ defs = Definitions(
         latest_session,
         drivers,
         laps,
+        dbt_build,
     ],
     jobs=[
         openf1_ingestion_job,

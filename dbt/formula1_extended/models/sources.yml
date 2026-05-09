@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: "{{ env_var('POSTGRES_RAW_SCHEMA', 'raw') }}"
+    tables:
+      - name: sessions
+      - name: drivers
+      - name: laps
