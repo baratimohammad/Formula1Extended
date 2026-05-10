@@ -103,5 +103,23 @@ def get_pipeline_schedule_config() -> dict:
     return load_app_config()["pipeline"]["schedule"]
 
 
+def get_prometheus_metrics_port() -> int:
+    return int(os.getenv("PROMETHEUS_METRICS_PORT", "9108"))
+
+
+def get_observability_state_path() -> Path:
+    configured_path = Path(
+        os.getenv(
+            "OBSERVABILITY_STATE_PATH",
+            str(PROJECT_ROOT / "dagster_home" / "observability" / "metrics_state.json"),
+        )
+    )
+
+    if configured_path.is_absolute():
+        return configured_path
+
+    return PROJECT_ROOT / configured_path
+
+
 def build_raw_output_path(dataset: str, session_key: int, filename: str) -> Path:
     return get_storage_raw_root() / dataset / f"session_key={session_key}" / filename

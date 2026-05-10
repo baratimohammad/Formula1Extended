@@ -32,10 +32,13 @@ services:
       - ./:/opt/dagster/app
       - ./dagster_home:/opt/dagster/dagster_home
     command: >
+      sh -c "python -m src.observability.metrics_server &
       dagster api grpc
       -h 0.0.0.0
       -p 4000
-      -m orchestration.definitions
+      -m orchestration.definitions"
+    ports:
+      - "9108:9108"
 
   dagster-webserver:
     build:
@@ -80,6 +83,18 @@ services:
       - ./:/opt/dagster/app
       - ./dagster_home:/opt/dagster/dagster_home
     command: dagster-daemon run
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    depends_on:
+      dagster-code:
+        condition: service_started
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
 
 volumes:
   postgres_data:

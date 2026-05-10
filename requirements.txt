@@ -12,3 +12,4 @@ PyYAML==6.0.2
 SQLAlchemy==2.0.40
 psycopg[binary]==3.2.7
 dbt-postgres==1.8.2
+prometheus-client==0.21.1

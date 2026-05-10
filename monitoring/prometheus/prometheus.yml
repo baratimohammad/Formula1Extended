@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "formula1_dagster_metrics"
+    static_configs:
+      - targets:
+          - "dagster-code:9108"

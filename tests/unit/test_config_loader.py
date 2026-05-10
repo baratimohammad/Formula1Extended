@@ -3,10 +3,12 @@ from src.config_loader import (
     configure_logging,
     get_api_base_url,
     get_api_timeout_seconds,
+    get_observability_state_path,
     get_pipeline_retry_config,
     get_postgres_analytics_schema,
     get_postgres_database,
     get_postgres_host,
+    get_prometheus_metrics_port,
     get_postgres_port,
     get_postgres_raw_schema,
     get_postgres_user,
@@ -36,6 +38,10 @@ def test_config_loader_returns_expected_defaults():
     assert get_postgres_user() == "formula1"
     assert get_postgres_raw_schema() == "raw"
     assert get_postgres_analytics_schema() == "analytics"
+    assert get_prometheus_metrics_port() == 9108
+    assert get_observability_state_path().as_posix().endswith(
+        "/dagster_home/observability/metrics_state.json"
+    )
     assert get_pipeline_retry_config()["max_retries"] == 3
 
 
